@@ -96,6 +96,8 @@ class JobMarketSimulation:
         self.rng = random.Random(config.seed)
         self.market = MarketState()
 
+        self.applicant_snapshots: list[dict[str, int | float | str]] = []
+
         self.next_job_id = 1
         self.companies: list[Company] = self._build_companies()
         self.applicants: list[Applicant] = self._build_applicants()
@@ -177,6 +179,8 @@ class JobMarketSimulation:
 
         if self._trace_enabled and 0 <= self._trace_applicant_id < len(self.applicants):
             self._log_daily_snapshot(self.applicants[self._trace_applicant_id], day)
+
+        self._collect_applicant_snapshots(day)
 
         return self._collect_metrics(day)
 
@@ -853,6 +857,26 @@ class JobMarketSimulation:
             "platform_boost_revenue_cumulative": round(platform_revenue_cumulative, 2),
         }
         return metrics
+
+    def _collect_applicant_snapshots(self, day: int) -> None:
+        for a in self.applicants:
+            self.applicant_snapshots.append(
+                {
+                    "day": day,
+                    "applicant_id": a.id,
+                    "status": a.status.value,
+                    "company_id": a.current_company_id if a.current_company_id is not None else -1,
+                    "company_name": self._company_name(a.current_company_id) if a.current_company_id else "",
+                    "company_tier": a.current_company_tier,
+                    "salary": round(a.current_salary, 2),
+                    "strategy": a.strategy.value,
+                    "wealth": round(a.wealth, 2),
+                    "experience": round(a.experience, 4),
+                    "recent_rejections": a.recent_rejections,
+                    "hired_count": a.hired_count,
+                    "total_applications": a.total_applications,
+                }
+            )
 
     def final_summary(self) -> dict[str, float | int]:
         employed = [a for a in self.applicants if a.status == EmploymentStatus.EMPLOYED]

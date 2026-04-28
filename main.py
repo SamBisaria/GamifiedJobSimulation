@@ -11,6 +11,7 @@ from job_sim.visualization import (
     write_company_breakdown_json,
     write_daily_metrics_csv,
     write_summary_json,
+    write_applicant_snapshots_csv,
 )
 
 
@@ -69,6 +70,8 @@ def main() -> None:
         company_csv_path = write_company_breakdown_csv(args.output_dir, company_breakdown)
         company_json_path = write_company_breakdown_json(args.output_dir, company_breakdown)
         plot_path = try_write_basic_plots(args.output_dir, daily)
+        snapshots_path = write_applicant_snapshots_csv(args.output_dir, sim.applicant_snapshots)
+        print(f"- Applicant snapshots: {snapshots_path}")
 
     print("\nRun complete")
     if args.write_outputs:

@@ -96,3 +96,18 @@ def try_write_basic_plots(output_dir: str, daily_metrics: list[dict[str, float |
     plt.savefig(target)
     plt.close(fig)
     return target
+
+def write_applicant_snapshots_csv(output_dir: str, rows: list[dict[str, float | int | str]]) -> str:
+    ensure_dir(output_dir)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    target = os.path.join(output_dir, f"applicant_snapshots_{stamp}.csv")
+    if not rows:
+        with open(target, "w", encoding="utf-8", newline="") as f:
+            f.write("day,applicant_id\n")
+        return target
+    fieldnames = list(rows[0].keys())
+    with open(target, "w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    return target
