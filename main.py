@@ -10,6 +10,7 @@ from job_sim.visualization import (
     write_company_breakdown_csv,
     write_company_breakdown_json,
     write_daily_metrics_csv,
+    write_interaction_events_csv,
     write_summary_json,
     write_applicant_snapshots_csv,
 )
@@ -72,6 +73,8 @@ def main() -> None:
         plot_path = try_write_basic_plots(args.output_dir, daily)
         snapshots_path = write_applicant_snapshots_csv(args.output_dir, sim.applicant_snapshots)
         print(f"- Applicant snapshots: {snapshots_path}")
+        events_path = write_interaction_events_csv(args.output_dir, sim.interaction_events)
+        print(f"- Interaction events: {events_path}")
 
     print("\nRun complete")
     if args.write_outputs:

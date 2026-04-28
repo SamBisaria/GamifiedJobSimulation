@@ -97,6 +97,7 @@ class JobMarketSimulation:
         self.market = MarketState()
 
         self.applicant_snapshots: list[dict[str, int | float | str]] = []
+        self.interaction_events: list[dict[str, int | str]] = []
 
         self.next_job_id = 1
         self.companies: list[Company] = self._build_companies()
@@ -528,6 +529,11 @@ class JobMarketSimulation:
         job.applicants.append(submission)
         company_name = self._company_name(job.company_id)
         self.companies[job.company_id - 1].applications_received += 1
+        self.interaction_events.append({
+            "day": day, "applicant_id": applicant.id,
+            "company_id": job.company_id, "company_name": company_name,
+            "company_tier": job.tier, "event": "applied",
+        })
         self._log_trace(
             applicant,
             day,
@@ -709,6 +715,12 @@ class JobMarketSimulation:
                 winner_submission.status = "hired"
                 self._hires_today += 1
                 self.companies[job.company_id - 1].jobs_filled += 1
+                self.interaction_events.append({
+                    "day": day, "applicant_id": winner_id,
+                    "company_id": job.company_id,
+                    "company_name": self._company_name(job.company_id),
+                    "company_tier": job.tier, "event": "hired",
+                })
                 self._log_trace(
                     winner,
                     day,
@@ -773,6 +785,7 @@ class JobMarketSimulation:
             share = self.rng.uniform(0.10, 0.35)
             for applicant in self.applicants:
                 if applicant.current_company_id == target_company.id and self.rng.random() < share:
+                    laid_off_cid = applicant.current_company_id
                     applicant.status = EmploymentStatus.UNEMPLOYED
                     applicant.current_company_id = None
                     applicant.current_company_tier = 0
@@ -780,6 +793,12 @@ class JobMarketSimulation:
                     applicant.current_role_skills = []
                     laid_off += 1
                     self._log_trace(applicant, day, f"mass layoff from company {target_company.id}")
+                    self.interaction_events.append({
+                        "day": day, "applicant_id": applicant.id,
+                        "company_id": laid_off_cid,
+                        "company_name": self._company_name(laid_off_cid),
+                        "company_tier": target_company.tier, "event": "laid_off",
+                    })
             if laid_off > 0:
                 self.market.job_market_index = clamp(self.market.job_market_index - 0.06, 0.55, 1.65)
 
@@ -792,12 +811,20 @@ class JobMarketSimulation:
                 self._log_trace(applicant, day, f"accident event, unavailable {down_days} days and debt ${debt:.2f}")
 
             if applicant.status == EmploymentStatus.EMPLOYED and self.rng.random() < self.config.fired_daily_prob:
+                fired_cid = applicant.current_company_id
+                fired_tier = applicant.current_company_tier
                 applicant.status = EmploymentStatus.UNEMPLOYED
                 applicant.current_company_id = None
                 applicant.current_company_tier = 0
                 applicant.current_salary = 0.0
                 applicant.current_role_skills = []
                 self._log_trace(applicant, day, "fired from job")
+                self.interaction_events.append({
+                    "day": day, "applicant_id": applicant.id,
+                    "company_id": fired_cid or -1,
+                    "company_name": self._company_name(fired_cid) if fired_cid else "",
+                    "company_tier": fired_tier, "event": "fired",
+                })
 
             if self.rng.random() < self.config.windfall_daily_prob:
                 payout = self.rng.uniform(400.0, 9000.0)

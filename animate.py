@@ -8,6 +8,7 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import math
 
 
 def latest_file(output_dir: str, pattern: str) -> str:
@@ -286,6 +287,235 @@ def make_individual_animation(snapshots_path: str, daily_metrics_path: str, outp
     print(f"Individual animation → {target}")
     return target
 
+def make_interaction_animation(snapshots_path: str, events_path: str, output_dir: str) -> str:
+    df_snap = pd.read_csv(snapshots_path)
+    df_ev = pd.read_csv(events_path)
+
+    days = sorted(df_snap["day"].unique())
+    applicant_ids = sorted(df_snap["applicant_id"].unique())
+    n = len(applicant_ids)
+
+    # ── Applicant grid: left portion (10 cols) ───────────────────────────────
+    grid_cols = 10
+    grid_rows = math.ceil(n / grid_cols)
+    aid_to_pos: dict[int, tuple[float, float]] = {}
+    for i, aid in enumerate(applicant_ids):
+        col = i % grid_cols
+        row = i // grid_cols
+        x = 0.03 + col * 0.034
+        y = 0.95 - row * (0.88 / max(1, grid_rows - 1))
+        aid_to_pos[aid] = (x, y)
+
+    # ── Company column: right side, sorted tier desc then name ───────────────
+    comp_df = (
+        df_snap[df_snap["company_id"] > 0][["company_id", "company_name", "company_tier"]]
+        .drop_duplicates("company_id")
+        .sort_values(["company_tier", "company_name"], ascending=[False, True])
+        .reset_index(drop=True)
+    )
+    companies = comp_df.to_dict("records")
+    n_c = len(companies)
+    cid_to_pos: dict[int, tuple[float, float]] = {}
+    for i, c in enumerate(companies):
+        cid_to_pos[c["company_id"]] = (0.82, 0.95 - i * (0.88 / max(1, n_c - 1)))
+
+    tier_pal = {0: "#e84040", 1: "#90caf9", 2: "#42a5f5", 3: "#66bb6a", 4: "#ffa726", 5: "#ab47bc"}
+
+    def dot_color(status: str, tier: int) -> str:
+        return tier_pal[0] if status == "unemployed" else tier_pal.get(tier, "#aaa")
+
+    def build_frame_data(day: int) -> list:
+        snap = df_snap[df_snap["day"] == day].set_index("applicant_id")
+        day_ev = df_ev[df_ev["day"] == day]
+        hire_ev = day_ev[day_ev["event"] == "hired"]
+        apply_ev = day_ev[day_ev["event"] == "applied"]
+        fire_ev = day_ev[day_ev["event"].isin(["fired", "laid_off"])]
+
+        # Applicant dots
+        ax = [aid_to_pos[a][0] for a in applicant_ids]
+        ay = [aid_to_pos[a][1] for a in applicant_ids]
+        a_colors, a_hovers = [], []
+        for aid in applicant_ids:
+            if aid in snap.index:
+                r = snap.loc[aid]
+                status, tier = str(r["status"]), int(r.get("company_tier", 0))
+                a_colors.append(dot_color(status, tier))
+                a_hovers.append(
+                    f"#{aid} | {status}<br>"
+                    f"{r.get('company_name', '')}<br>"
+                    f"Salary: ${float(r['salary']):,.0f} | Wealth: ${float(r['wealth']):,.0f}"
+                )
+            else:
+                a_colors.append(tier_pal[0])
+                a_hovers.append(f"#{aid}")
+
+        # Company nodes, sized by employee count
+        emp_cnt = snap[snap["status"] == "employed"]["company_id"].value_counts()
+        cx = [cid_to_pos[c["company_id"]][0] for c in companies]
+        cy = [cid_to_pos[c["company_id"]][1] for c in companies]
+        c_sizes = [min(40, max(12, emp_cnt.get(c["company_id"], 0) * 2 + 10)) for c in companies]
+        c_colors = [tier_pal.get(c["company_tier"], "#aaa") for c in companies]
+        c_hovers = [
+            f"<b>{c['company_name']}</b><br>Tier {c['company_tier']}<br>"
+            f"Employees: {emp_cnt.get(c['company_id'], 0)}"
+            for c in companies
+        ]
+
+        # Application lines (thin, dashed, faint)
+        al_x: list = []
+        al_y: list = []
+        for _, row in apply_ev.iterrows():
+            aid, cid = int(row["applicant_id"]), int(row["company_id"])
+            if aid in aid_to_pos and cid in cid_to_pos:
+                x0, y0 = aid_to_pos[aid]
+                x1, y1 = cid_to_pos[cid]
+                al_x.extend([x0, x1, None])
+                al_y.extend([y0, y1, None])
+
+        # Hire lines + midpoint labels
+        hl_x: list = []
+        hl_y: list = []
+        lbl_x, lbl_y = [], []
+        for _, row in hire_ev.iterrows():
+            aid, cid = int(row["applicant_id"]), int(row["company_id"])
+            if aid in aid_to_pos and cid in cid_to_pos:
+                x0, y0 = aid_to_pos[aid]
+                x1, y1 = cid_to_pos[cid]
+                hl_x.extend([x0, x1, None])
+                hl_y.extend([y0, y1, None])
+                lbl_x.append((x0 + x1) / 2)
+                lbl_y.append((y0 + y1) / 2 + 0.012)
+
+        # Fire rings
+        fire_aids = [
+            int(r["applicant_id"]) for _, r in fire_ev.iterrows()
+            if int(r["applicant_id"]) in aid_to_pos
+        ]
+        fr_x = [aid_to_pos[a][0] for a in fire_aids]
+        fr_y = [aid_to_pos[a][1] for a in fire_aids]
+
+        return [
+            go.Scatter(  # 0: application lines
+                x=al_x, y=al_y, mode="lines",
+                line=dict(color="rgba(180,180,180,0.18)", width=0.8, dash="dot"),
+                hoverinfo="skip", showlegend=False,
+            ),
+            go.Scatter(  # 1: hire lines
+                x=hl_x, y=hl_y, mode="lines",
+                line=dict(color="rgba(80,220,100,0.85)", width=2.5),
+                hoverinfo="skip", showlegend=False,
+            ),
+            go.Scatter(  # 2: "Hired ✓" midpoint labels
+                x=lbl_x, y=lbl_y, mode="text",
+                text=["Hired ✓"] * len(lbl_x),
+                textfont=dict(color="rgba(80,220,100,0.95)", size=8),
+                hoverinfo="skip", showlegend=False,
+            ),
+            go.Scatter(  # 3: fire rings
+                x=fr_x, y=fr_y, mode="markers",
+                marker=dict(
+                    color="rgba(0,0,0,0)", size=20,
+                    line=dict(color="rgba(255,80,80,0.9)", width=2.5),
+                ),
+                hoverinfo="skip", showlegend=False,
+            ),
+            go.Scatter(  # 4: applicant dots
+                x=ax, y=ay, mode="markers",
+                marker=dict(color=a_colors, size=9,
+                            line=dict(color="rgba(255,255,255,0.35)", width=0.5)),
+                text=a_hovers, hoverinfo="text", showlegend=False,
+            ),
+            go.Scatter(  # 5: company squares
+                x=cx, y=cy, mode="markers+text",
+                marker=dict(color=c_colors, size=c_sizes, symbol="square",
+                            line=dict(color="rgba(255,255,255,0.3)", width=1)),
+                text=[c["company_name"] for c in companies],
+                textposition="middle left",
+                textfont=dict(size=7, color="rgba(255,255,255,0.6)"),
+                hovertext=c_hovers, hoverinfo="text", showlegend=False,
+            ),
+        ]
+
+    frames = [
+        go.Frame(
+            data=build_frame_data(day),
+            traces=list(range(6)),
+            name=str(day),
+            layout=go.Layout(
+                title_text=(
+                    f"Day {day}  |  "
+                    f"Applications: {len(df_ev[(df_ev['day']==day) & (df_ev['event']=='applied')])}  |  "
+                    f"Hired: {len(df_ev[(df_ev['day']==day) & (df_ev['event']=='hired')])}  |  "
+                    f"Fired/Laid off: {len(df_ev[(df_ev['day']==day) & (df_ev['event'].isin(['fired','laid_off']))])}"
+                )
+            ),
+        )
+        for day in days
+    ]
+
+    fig = go.Figure(data=build_frame_data(days[0]), frames=frames)
+
+    fig.update_xaxes(range=[0, 1], showgrid=False, zeroline=False, showticklabels=False, fixedrange=True)
+    fig.update_yaxes(range=[0, 1], showgrid=False, zeroline=False, showticklabels=False, fixedrange=True)
+
+    tier_legend = [
+        dict(x=0.005, y=1.0 - i * 0.055, xref="paper", yref="paper",
+             text=f"● {lbl}", showarrow=False,
+             font=dict(size=9, color=tier_pal[t]))
+        for i, (t, lbl) in enumerate(
+            [(0, "Unemployed"), (1, "Tier 1"), (2, "Tier 2"), (3, "Tier 3"), (4, "Tier 4"), (5, "Tier 5")]
+        )
+    ]
+
+    fig.update_layout(
+        title=f"Day {days[0]} | Job Market Interactions",
+        height=750,
+        plot_bgcolor="#12122a",
+        paper_bgcolor="#0d0d1f",
+        font=dict(color="white"),
+        updatemenus=[{
+            "type": "buttons",
+            "y": -0.08, "x": 0.5, "xanchor": "center",
+            "bgcolor": "#2a2a44",
+            "buttons": [
+                {"label": "▶ Play", "method": "animate",
+                 "args": [None, {"frame": {"duration": 600, "redraw": True},
+                                 "transition": {"duration": 300, "easing": "cubic-in-out"},
+                                 "fromcurrent": True}]},
+                {"label": "⏸ Pause", "method": "animate",
+                 "args": [[None], {"frame": {"duration": 0}, "mode": "immediate"}]},
+            ],
+        }],
+        sliders=[{
+            "steps": [
+                {"method": "animate",
+                 "args": [[str(d)], {"mode": "immediate",
+                                     "transition": {"duration": 200, "easing": "cubic-in-out"},
+                                     "frame": {"duration": 600, "redraw": True}}],
+                 "label": str(d)}
+                for d in days
+            ],
+            "x": 0.05, "len": 0.9,
+            "bgcolor": "#2a2a44",
+            "currentvalue": {"prefix": "Day: ", "visible": True, "font": {"color": "white"}},
+            "pad": {"t": 50},
+        }],
+        annotations=[
+            dict(x=0.22, y=1.04, xref="paper", yref="paper",
+                 text="◉ Applicants", showarrow=False, font=dict(size=12)),
+            dict(x=0.82, y=1.04, xref="paper", yref="paper",
+                 text="■ Companies (size = employees)", showarrow=False, font=dict(size=12)),
+            dict(x=0.54, y=1.04, xref="paper", yref="paper",
+                 text="━ hired   ┄ applied   ○ fired",
+                 showarrow=False, font=dict(size=10, color="rgba(160,230,160,0.85)")),
+        ] + tier_legend,
+    )
+
+    target = os.path.join(output_dir, "animation_interactions.html")
+    fig.write_html(target)
+    print(f"Interaction animation → {target}")
+    return target
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate animations from simulation output")
@@ -295,7 +525,9 @@ if __name__ == "__main__":
 
     snapshots = latest_file(args.output_dir, "applicant_snapshots_*.csv")
     daily = latest_file(args.output_dir, "daily_metrics_*.csv")
-
+    events = latest_file(args.output_dir, "interaction_events_*.csv")
+    
     make_population_animation(snapshots, args.output_dir)
     make_population_animation_with_dots(snapshots, args.output_dir)
     make_individual_animation(snapshots, daily, args.output_dir, args.applicant_id)
+    make_interaction_animation(snapshots, events, args.output_dir)
