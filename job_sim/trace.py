@@ -136,7 +136,7 @@ def build_daily_status_window_concise(
     skill_changes: list[str] = []
     for skill in all_skills:
         delta = float(skills[skill]) - float(prev_skills[skill])
-        if abs(delta) >= 0.005:
+        if abs(delta) >= 0.003:
             skill_changes.append(f"{skill}: {float(skills[skill]):.3f} ({delta:+.3f})")
 
     if changed_lines:
@@ -151,7 +151,7 @@ def build_daily_status_window_concise(
         for item in skill_changes:
             lines.append(f"  - {item}")
     else:
-        lines.append("Changed Skills: none")
+        lines.append("Changed Skills: none (all deltas below 0.003)")
 
     return "\n".join(lines)
 

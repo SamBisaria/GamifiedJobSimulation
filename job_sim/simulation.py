@@ -473,7 +473,7 @@ class JobMarketSimulation:
             applicant.skills[weakest] = clamp(applicant.skills[weakest] + gain, 0.0, self._skill_cap(applicant))
             applicant.practiced_skills_today.add(weakest)
             applicant.experience = clamp(applicant.experience + 0.003 + 0.004 * applicant.intelligence, 0.0, 1.0)
-            self._log_trace(applicant, day, f"skill training in {weakest}")
+            self._log_trace(applicant, day, f"skill training in {weakest} (+{gain:.4f})")
             return
 
         if action == "side_gig":
