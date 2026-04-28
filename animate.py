@@ -18,8 +18,16 @@ def latest_file(output_dir: str, pattern: str) -> str:
     return matches[-1]
 
 
-def make_population_animation(snapshots_path: str, output_dir: str) -> str:
+def make_population_animation(snapshots_path: str, daily_metrics_path: str, output_dir: str) -> str:
     df = pd.read_csv(snapshots_path)
+    dm = pd.read_csv(daily_metrics_path).sort_values("day")
+    cum_by_day = {
+        int(r["day"]): (
+            float(r["company_boost_revenue_cumulative"] + r["platform_boost_revenue_cumulative"]),
+            float(r["platform_boost_revenue_cumulative"]),
+        )
+        for _, r in dm.iterrows()
+    }
     # Map each person to a state label: unemployed, or tier-1..tier-5
     df["state"] = np.where(
         df["status"] == "unemployed",
@@ -30,8 +38,10 @@ def make_population_animation(snapshots_path: str, output_dir: str) -> str:
     state_order = ["unemployed", "tier-1", "tier-2", "tier-3", "tier-4", "tier-5"]
     colors = ["#d62728", "#aec7e8", "#1f77b4", "#2ca02c", "#ff7f0e", "#9467bd"]
 
+
     frames = []
     for day in days:
+        cum_spend, cum_plat = cum_by_day.get(day, (0.0, 0.0))
         day_df = df[df["day"] == day]
         counts = day_df["state"].value_counts()
         frames.append(
@@ -46,7 +56,10 @@ def make_population_animation(snapshots_path: str, output_dir: str) -> str:
                     for state, color in zip(state_order, colors)
                 ],
                 name=str(day),
-                layout=go.Layout(title_text=f"Day {day}"),
+                layout=go.Layout(title_text=(
+                    f"Day {day}  |  Applicant Spend: ${cum_spend:,.0f}"
+                    f"  |  Platform Revenue: ${cum_plat:,.0f}"
+                )),
             )
         )
 
@@ -84,8 +97,16 @@ def make_population_animation(snapshots_path: str, output_dir: str) -> str:
     print(f"Population animation → {target}")
     return target
 
-def make_population_animation_with_dots(snapshots_path: str, output_dir: str) -> str:
+def make_population_animation_with_dots(snapshots_path: str, daily_metrics_path: str, output_dir: str) -> str:
     df = pd.read_csv(snapshots_path)
+    dm = pd.read_csv(daily_metrics_path).sort_values("day")
+    cum_by_day = {
+        int(r["day"]): (
+            float(r["company_boost_revenue_cumulative"] + r["platform_boost_revenue_cumulative"]),
+            float(r["platform_boost_revenue_cumulative"]),
+        )
+        for _, r in dm.iterrows()
+    }
     df["tier_val"] = np.where(df["status"] == "unemployed", 0, df["company_tier"].astype(int))
     df["state"] = np.where(
         df["status"] == "unemployed",
@@ -133,6 +154,7 @@ def make_population_animation_with_dots(snapshots_path: str, output_dir: str) ->
         day_df = df[df["day"] == day]
         y_vals, colors, hovers = day_dot_data(day_df)
         counts = day_df["state"].value_counts()
+        cum_spend, cum_plat = cum_by_day.get(day, (0.0, 0.0))
         frames.append(go.Frame(
             data=[
                 go.Scatter(
@@ -147,7 +169,10 @@ def make_population_animation_with_dots(snapshots_path: str, output_dir: str) ->
             ],
             traces=list(range(7)),
             name=str(day),
-            layout=go.Layout(title_text=f"Day {day}"),
+            layout=go.Layout(title_text=(
+                    f"Day {day}  |  Applicant Spend: ${cum_spend:,.0f}"
+                    f"  |  Platform Revenue: ${cum_plat:,.0f}"
+                )),
         ))
 
     # Initial state (day 1)
@@ -223,8 +248,195 @@ def make_population_animation_with_dots(snapshots_path: str, output_dir: str) ->
     print(f"Population animation → {target}")
     return target
 
+def make_wealth_income_animation(snapshots_path: str, daily_metrics_path: str, output_dir: str) -> str:
+    df = pd.read_csv(snapshots_path)
+    dm = pd.read_csv(daily_metrics_path).sort_values("day")
+    cum_by_day = {
+        int(r["day"]): (
+            float(r["company_boost_revenue_cumulative"] + r["platform_boost_revenue_cumulative"]),
+            float(r["platform_boost_revenue_cumulative"]),
+        )
+        for _, r in dm.iterrows()
+    }
 
-def make_individual_animation(snapshots_path: str, daily_metrics_path: str, output_dir: str, applicant_id: int) -> str:
+    days = sorted(df["day"].unique())
+    applicant_ids = sorted(df["applicant_id"].unique())
+
+    # Color each person by their FINAL tier so you can see where trajectories end up
+    last_day = days[-1]
+    final_snap = df[df["day"] == last_day].set_index("applicant_id")
+    tier_pal = {0: "#e84040", 1: "#90caf9", 2: "#42a5f5", 3: "#66bb6a", 4: "#ffa726", 5: "#ab47bc"}
+    tier_labels = {0: "Unemployed", 1: "Tier 1", 2: "Tier 2", 3: "Tier 3", 4: "Tier 4", 5: "Tier 5"}
+
+    def final_tier(aid: int) -> int:
+        if aid in final_snap.index:
+            r = final_snap.loc[aid]
+            return 0 if str(r["status"]) == "unemployed" else int(r["company_tier"])
+        return 0
+
+    tier_groups: dict[int, list[int]] = {t: [] for t in range(6)}
+    for aid in applicant_ids:
+        tier_groups[final_tier(aid)].append(aid)
+
+    # Pre-pivot: salary is None when unemployed (produces visible gaps in lines)
+    salary_by_aid: dict[int, dict[int, float | None]] = {}
+    wealth_by_aid: dict[int, dict[int, float]] = {}
+    for aid in applicant_ids:
+        pf = df[df["applicant_id"] == aid].sort_values("day")
+        salary_by_aid[aid] = {
+            int(r["day"]): (None if str(r["status"]) == "unemployed" else float(r["salary"]))
+            for _, r in pf.iterrows()
+        }
+        wealth_by_aid[aid] = dict(zip(pf["day"].astype(int), pf["wealth"].astype(float)))
+
+    # Average across employed only for salary, all for wealth
+    avg_salary = df[df["status"] == "employed"].groupby("day")["salary"].mean()
+    avg_wealth = df.groupby("day")["wealth"].mean()
+
+    salary_max = float(df["salary"].max()) * 1.08
+    wealth_max = float(df["wealth"].max()) * 1.08
+
+    def concat_lines(tier: int, data_dict: dict[int, dict], days_up_to: list[int]):
+        """Concatenate all lines for a tier group with None separators between people."""
+        x_vals: list = []
+        y_vals: list = []
+        for aid in tier_groups[tier]:
+            for d in days_up_to:
+                x_vals.append(d)
+                y_vals.append(data_dict[aid].get(d, None))
+            x_vals.append(None)
+            y_vals.append(None)
+        return x_vals, y_vals
+
+    def build_traces(days_up_to: list[int]) -> list:
+        traces = []
+        # Traces 0-5: salary per tier group
+        for t in range(6):
+            x, y = concat_lines(t, salary_by_aid, days_up_to)
+            traces.append(go.Scatter(
+                x=x, y=y, mode="lines",
+                line=dict(color=tier_pal[t], width=0.8), opacity=0.3,
+                showlegend=False, yaxis="y",
+            ))
+        # Trace 6: avg salary
+        traces.append(go.Scatter(
+            x=days_up_to,
+            y=[avg_salary.get(d, None) for d in days_up_to],
+            mode="lines", line=dict(color="white", width=2.5, dash="dot"),
+            showlegend=False, yaxis="y",
+        ))
+        # Traces 7-12: wealth per tier group
+        for t in range(6):
+            x, y = concat_lines(t, wealth_by_aid, days_up_to)
+            traces.append(go.Scatter(
+                x=x, y=y, mode="lines",
+                line=dict(color=tier_pal[t], width=0.8), opacity=0.3,
+                showlegend=False, yaxis="y2",
+            ))
+        # Trace 13: avg wealth
+        traces.append(go.Scatter(
+            x=days_up_to,
+            y=[avg_wealth.get(d, None) for d in days_up_to],
+            mode="lines", line=dict(color="white", width=2.5, dash="dot"),
+            showlegend=False, yaxis="y2",
+        ))
+        return traces
+    
+    frames = []
+    for day in days:
+        cum_spend, cum_plat = cum_by_day.get(day, (0.0, 0.0))
+        frames.append(
+            go.Frame(
+                data=build_traces([d for d in days if d <= day]),
+                traces=list(range(14)),
+                name=str(day),
+                layout=go.Layout(title_text=(
+                        f"Day {day}  |  Applicant Spend: ${cum_spend:,.0f}"
+                        f"  |  Platform Revenue: ${cum_plat:,.0f}"
+                    )),
+            )
+        )
+
+    fig = go.Figure(
+        data=build_traces([days[0]]),
+        frames=frames,
+        layout=go.Layout(
+            title="Income & Wealth Trajectories — All Applicants (color = final tier)",
+            height=680,
+            plot_bgcolor="#12122a",
+            paper_bgcolor="#0d0d1f",
+            font=dict(color="white"),
+            # Two vertically stacked panels sharing the x-axis
+            xaxis=dict(
+                title="Day", range=[min(days) - 1, max(days) + 1],
+                gridcolor="rgba(255,255,255,0.06)",
+            ),
+            yaxis=dict(
+                title="Salary ($)", domain=[0.54, 1.0],
+                range=[0, salary_max],
+                gridcolor="rgba(255,255,255,0.06)",
+            ),
+            yaxis2=dict(
+                title="Wealth ($)", domain=[0.0, 0.46],
+                range=[0, wealth_max],
+                gridcolor="rgba(255,255,255,0.06)",
+                anchor="x",
+            ),
+            annotations=[
+                dict(x=0.01, y=0.99, xref="paper", yref="paper",
+                     text="<b>Salary</b> (gaps = unemployed)", showarrow=False,
+                     font=dict(size=11, color="rgba(255,255,255,0.7)"), xanchor="left"),
+                dict(x=0.01, y=0.46, xref="paper", yref="paper",
+                     text="<b>Wealth</b>", showarrow=False,
+                     font=dict(size=11, color="rgba(255,255,255,0.7)"), xanchor="left"),
+                dict(x=0.99, y=0.99, xref="paper", yref="paper",
+                     text="━ ┄ = average", showarrow=False,
+                     font=dict(size=9, color="white"), xanchor="right"),
+            ] + [
+                dict(
+                    x=1.01, y=0.96 - i * 0.07, xref="paper", yref="paper",
+                    text=f"● {tier_labels[t]}", showarrow=False,
+                    font=dict(size=9, color=tier_pal[t]), xanchor="left",
+                )
+                for i, t in enumerate(range(6)) if tier_groups[t]
+            ],
+            updatemenus=[{
+                "type": "buttons",
+                "y": -0.1, "x": 0.5, "xanchor": "center",
+                "bgcolor": "#2a2a44",
+                "buttons": [
+                    {"label": "▶ Play", "method": "animate",
+                     "args": [None, {"frame": {"duration": 150, "redraw": True},
+                                     "transition": {"duration": 80, "easing": "cubic-in-out"},
+                                     "fromcurrent": True}]},
+                    {"label": "⏸ Pause", "method": "animate",
+                     "args": [[None], {"frame": {"duration": 0}, "mode": "immediate"}]},
+                ],
+            }],
+            sliders=[{
+                "steps": [
+                    {"method": "animate",
+                     "args": [[str(d)], {"mode": "immediate",
+                                         "transition": {"duration": 60, "easing": "cubic-in-out"},
+                                         "frame": {"duration": 150, "redraw": True}}],
+                     "label": str(d)}
+                    for d in days
+                ],
+                "x": 0.05, "len": 0.9,
+                "bgcolor": "#2a2a44",
+                "currentvalue": {"prefix": "Day: ", "visible": True, "font": {"color": "white"}},
+                "pad": {"t": 50},
+            }],
+        ),
+    )
+
+    target = os.path.join(output_dir, "animation_wealth_income.html")
+    fig.write_html(target)
+    print(f"Wealth & income animation → {target}")
+    return target
+
+
+def make_individual_animation(snapshots_path: str, output_dir: str, applicant_id: int) -> str:
     df = pd.read_csv(snapshots_path)
     person = df[df["applicant_id"] == applicant_id].sort_values("day")
     if person.empty:
@@ -287,9 +499,17 @@ def make_individual_animation(snapshots_path: str, daily_metrics_path: str, outp
     print(f"Individual animation → {target}")
     return target
 
-def make_interaction_animation(snapshots_path: str, events_path: str, output_dir: str) -> str:
+def make_interaction_animation(snapshots_path: str, events_path: str, daily_metrics_path: str, output_dir: str) -> str:
     df_snap = pd.read_csv(snapshots_path)
     df_ev = pd.read_csv(events_path)
+    dm = pd.read_csv(daily_metrics_path).sort_values("day")
+    cum_by_day = {
+        int(r["day"]): (
+            float(r["company_boost_revenue_cumulative"] + r["platform_boost_revenue_cumulative"]),
+            float(r["platform_boost_revenue_cumulative"]),
+        )
+        for _, r in dm.iterrows()
+    }
 
     days = sorted(df_snap["day"].unique())
     applicant_ids = sorted(df_snap["applicant_id"].unique())
@@ -436,22 +656,26 @@ def make_interaction_animation(snapshots_path: str, events_path: str, output_dir
             ),
         ]
 
-    frames = [
-        go.Frame(
-            data=build_frame_data(day),
-            traces=list(range(6)),
-            name=str(day),
-            layout=go.Layout(
-                title_text=(
-                    f"Day {day}  |  "
-                    f"Applications: {len(df_ev[(df_ev['day']==day) & (df_ev['event']=='applied')])}  |  "
-                    f"Hired: {len(df_ev[(df_ev['day']==day) & (df_ev['event']=='hired')])}  |  "
-                    f"Fired/Laid off: {len(df_ev[(df_ev['day']==day) & (df_ev['event'].isin(['fired','laid_off']))])}"
-                )
-            ),
+    frames = []
+    for day in days:
+        cum_spend, cum_plat = cum_by_day.get(day, (0.0, 0.0))
+        frames.append(
+            go.Frame(
+                data=build_frame_data(day),
+                traces=list(range(6)),
+                name=str(day),
+                layout=go.Layout(
+                    title_text=(
+                        f"Day {day}  |  "
+                        f"Applications: {len(df_ev[(df_ev['day']==day) & (df_ev['event']=='applied')])}  |  "
+                        f"Hired: {len(df_ev[(df_ev['day']==day) & (df_ev['event']=='hired')])}  |  "
+                        f"Fired/Laid off: {len(df_ev[(df_ev['day']==day) & (df_ev['event'].isin(['fired','laid_off']))])}"
+                        f"  |  Applicant Spend: ${cum_spend:,.0f}"
+                        f"  |  Platform Revenue: ${cum_plat:,.0f}"
+                    )
+                ),
+            )
         )
-        for day in days
-    ]
 
     fig = go.Figure(data=build_frame_data(days[0]), frames=frames)
 
@@ -516,6 +740,120 @@ def make_interaction_animation(snapshots_path: str, events_path: str, output_dir
     print(f"Interaction animation → {target}")
     return target
 
+def make_revenue_animation(daily_metrics_path: str, output_dir: str) -> str:
+    dm = pd.read_csv(daily_metrics_path).sort_values("day").reset_index(drop=True)
+    days = dm["day"].tolist()
+
+    cum_spend    = (dm["company_boost_revenue_cumulative"] + dm["platform_boost_revenue_cumulative"]).tolist()
+    cum_platform = dm["platform_boost_revenue_cumulative"].tolist()
+    cum_company  = dm["company_boost_revenue_cumulative"].tolist()
+    cum_quest    = dm["quest_currency_today"].cumsum().tolist()
+    net_profit   = (dm["platform_boost_revenue_cumulative"] - dm["quest_currency_today"].cumsum()).tolist()
+    daily_spend  = dm["boost_spend_today"].tolist()
+
+    y_max = max(cum_spend) * 1.12
+    daily_max = max(daily_spend) * 1.2
+
+    def build_traces(i: int) -> list:
+        xs = days[:i+1]
+        return [
+            go.Scatter(x=xs, y=cum_spend[:i+1], mode="lines",
+                       line=dict(color="#ffa726", width=2.5), name="Total Applicant Spend", yaxis="y"),
+            go.Scatter(x=xs, y=cum_platform[:i+1], mode="lines",
+                       line=dict(color="#ab47bc", width=2.5), name="Platform Boost Revenue", yaxis="y"),
+            go.Scatter(x=xs, y=cum_company[:i+1], mode="lines",
+                       line=dict(color="#42a5f5", width=2.5), name="Company Revenue Share", yaxis="y"),
+            go.Scatter(x=xs, y=cum_quest[:i+1], mode="lines",
+                       line=dict(color="#e84040", width=1.5, dash="dash"), name="Quest Payouts (cumul.)", yaxis="y"),
+            go.Scatter(x=xs, y=net_profit[:i+1], mode="lines",
+                       line=dict(color="#66bb6a", width=2.5, dash="dot"), name="Net Platform Profit", yaxis="y"),
+            go.Bar(x=xs, y=daily_spend[:i+1],
+                   marker_color="rgba(255,167,38,0.45)", name="Daily Boost Spend", yaxis="y2"),
+        ]
+
+    frames = [
+        go.Frame(
+            data=build_traces(i),
+            traces=list(range(6)),
+            name=str(day),
+            layout=go.Layout(title_text=(
+                f"Day {day}  |  Total Applicant Spend: ${cum_spend[i]:,.0f}"
+                f"  |  Platform Revenue: ${cum_platform[i]:,.0f}"
+                f"  |  Net Profit: ${net_profit[i]:,.0f}"
+            )),
+        )
+        for i, day in enumerate(days)
+    ]
+
+    fig = go.Figure(
+        data=build_traces(0),
+        frames=frames,
+        layout=go.Layout(
+            title=f"Day {days[0]} | Platform Revenue",
+            height=680,
+            plot_bgcolor="#12122a",
+            paper_bgcolor="#0d0d1f",
+            font=dict(color="white"),
+            barmode="overlay",
+            xaxis=dict(
+                title="Day", range=[min(days)-1, max(days)+1],
+                gridcolor="rgba(255,255,255,0.06)",
+            ),
+            yaxis=dict(
+                title="Cumulative ($)", domain=[0.44, 1.0],
+                range=[0, y_max],
+                gridcolor="rgba(255,255,255,0.06)",
+            ),
+            yaxis2=dict(
+                title="Daily Spend ($)", domain=[0.0, 0.38],
+                range=[0, daily_max],
+                gridcolor="rgba(255,255,255,0.06)",
+                anchor="x",
+            ),
+            legend=dict(x=0.01, y=0.97, bgcolor="rgba(18,18,42,0.85)", font=dict(size=10)),
+            annotations=[
+                dict(x=0.01, y=1.01, xref="paper", yref="paper",
+                     text="<b>Cumulative Revenue Streams</b>", showarrow=False,
+                     font=dict(size=11, color="rgba(255,255,255,0.65)"), xanchor="left"),
+                dict(x=0.01, y=0.39, xref="paper", yref="paper",
+                     text="<b>Daily Boost Spend</b>", showarrow=False,
+                     font=dict(size=11, color="rgba(255,255,255,0.65)"), xanchor="left"),
+            ],
+            updatemenus=[{
+                "type": "buttons",
+                "y": -0.1, "x": 0.5, "xanchor": "center",
+                "bgcolor": "#2a2a44",
+                "buttons": [
+                    {"label": "▶ Play", "method": "animate",
+                     "args": [None, {"frame": {"duration": 150, "redraw": True},
+                                     "transition": {"duration": 80, "easing": "cubic-in-out"},
+                                     "fromcurrent": True}]},
+                    {"label": "⏸ Pause", "method": "animate",
+                     "args": [[None], {"frame": {"duration": 0}, "mode": "immediate"}]},
+                ],
+            }],
+            sliders=[{
+                "steps": [
+                    {"method": "animate",
+                     "args": [[str(d)], {"mode": "immediate",
+                                         "transition": {"duration": 60, "easing": "cubic-in-out"},
+                                         "frame": {"duration": 150, "redraw": True}}],
+                     "label": str(d)}
+                    for d in days
+                ],
+                "x": 0.05, "len": 0.9,
+                "bgcolor": "#2a2a44",
+                "currentvalue": {"prefix": "Day: ", "visible": True, "font": {"color": "white"}},
+                "pad": {"t": 50},
+            }],
+        ),
+    )
+
+    target = os.path.join(output_dir, "animation_revenue.html")
+    fig.write_html(target)
+    print(f"Revenue animation → {target}")
+    return target
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate animations from simulation output")
@@ -527,7 +865,9 @@ if __name__ == "__main__":
     daily = latest_file(args.output_dir, "daily_metrics_*.csv")
     events = latest_file(args.output_dir, "interaction_events_*.csv")
     
-    make_population_animation(snapshots, args.output_dir)
-    make_population_animation_with_dots(snapshots, args.output_dir)
-    make_individual_animation(snapshots, daily, args.output_dir, args.applicant_id)
-    make_interaction_animation(snapshots, events, args.output_dir)
+    make_population_animation(snapshots, daily, args.output_dir)
+    make_population_animation_with_dots(snapshots, daily, args.output_dir)
+    make_wealth_income_animation(snapshots, daily, args.output_dir)
+    make_individual_animation(snapshots, args.output_dir, args.applicant_id)
+    make_interaction_animation(snapshots, events, daily, args.output_dir)
+    make_revenue_animation(daily, args.output_dir)
