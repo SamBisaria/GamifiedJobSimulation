@@ -1,0 +1,51 @@
+# Gamified Job Matching Simulation
+
+This project simulates a gamified job-search platform with:
+- Daily quests (apply/message goals)
+- Premium currency earned or purchased
+- Boosted applications with tier/competition-based pricing
+- Two-stage hiring (screening + interview)
+- Dynamic applicant behavior adaptation
+- Rare random events (accidents, firing, mass layoffs, windfalls)
+
+## Quick start
+
+From `FinalProject`:
+
+```bash
+python main.py --users 100 --days 100 --seed 42 --mode batch
+```
+
+## Modes
+
+- `batch`: write outputs only
+- `dashboard`: print day-by-day summary in terminal
+- `trace`: print one applicant journey day-by-day
+- `all`: dashboard + trace + output files
+
+Trace detail levels:
+- `concise` (default): only changed stats and skills each day, but always includes employment status and current company/job line.
+- `full`: full stat window every day.
+
+Example with trace:
+
+```bash
+python main.py --users 100 --days 30 --mode trace --trace-id 7
+```
+
+Example with full trace detail:
+
+```bash
+python main.py --users 100 --days 30 --mode trace --trace-id 7 --trace-detail full
+```
+
+## Outputs
+
+The run writes files to `output/`:
+- `daily_metrics_*.csv`
+- `summary_*.json`
+- `metrics_plot_*.png` (only if matplotlib is installed)
+
+## Main parameters
+
+Edit defaults in `job_sim/config.py` or pass CLI args for users/days/seed.
