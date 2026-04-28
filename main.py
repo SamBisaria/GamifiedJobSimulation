@@ -52,12 +52,22 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Write CSV/JSON/plot output files (default: no)",
     )
+    parser.add_argument(
+        "--fair-mode",
+        action="store_true",
+        help="Disable premium currency purchases and boosts (fair competition mode)",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    config = SimulationConfig(num_users=args.users, num_days=args.days, seed=args.seed)
+    config = SimulationConfig(
+        num_users=args.users,
+        num_days=args.days,
+        seed=args.seed,
+        fair_mode=args.fair_mode,
+    )
     sim = JobMarketSimulation(config)
 
     daily = sim.run(mode=args.mode, trace_applicant_id=args.trace_id, trace_detail=args.trace_detail)
@@ -76,22 +86,85 @@ def main() -> None:
         events_path = write_interaction_events_csv(args.output_dir, sim.interaction_events)
         print(f"- Interaction events: {events_path}")
 
-    print("\nRun complete")
+    print("\n" + "=" * 80)
+    print("RUN COMPLETE")
+    print("=" * 80)
+    
     if args.write_outputs:
-        print(f"- CSV metrics: {csv_path}")
-        print(f"- Summary: {summary_path}")
-        print(f"- Company breakdown CSV: {company_csv_path}")
-        print(f"- Company breakdown JSON: {company_json_path}")
+        print("\nOutput files:")
+        print(f"  CSV metrics:          {csv_path}")
+        print(f"  Summary:              {summary_path}")
+        print(f"  Company breakdown:    {company_csv_path}")
+        print(f"  Company breakdown:    {company_json_path}")
         if plot_path:
-            print(f"- Plot: {plot_path}")
+            print(f"  Plot:                 {plot_path}")
         else:
-            print("- Plot: skipped (matplotlib not installed)")
+            print("  Plot:                 skipped (matplotlib not installed)")
     else:
-        print("- Output files: disabled (use --write-outputs to enable)")
+        print("Output files: disabled (use --write-outputs to enable)")
 
-    print("\nFinal summary")
+    print("\n" + "-" * 80)
+    print("FINAL SUMMARY")
+    print("-" * 80)
     for key, value in summary.items():
-        print(f"{key}: {value}")
+        if isinstance(value, float):
+            print(f"{key:.<40} {value:>10.4f}" if "rate" in key or "tier" in key or "score" in key else f"{key:.<40} ${value:>10.2f}" if "revenue" in key or "spend" in key or "currency" in key else f"{key:.<40} {value:>10.2f}")
+        else:
+            print(f"{key:.<40} {value:>10}")
+    
+    # Print enhanced summary if available
+    try:
+        detailed = sim.final_summary_detailed()
+        print("\n" + "-" * 80)
+        print("RARE EVENTS DURING SIMULATION")
+        print("-" * 80)
+        events = detailed["rare_events"]
+        if (
+            events["accidents"] > 0
+            or events["firings"] > 0
+            or events["windfalls"] > 0
+            or events["mass_layoffs"] > 0
+            or events["chronic_conditions"] > 0
+            or events["breakdowns"] > 0
+        ):
+            print(f"Accidents:                         {events['accidents']}")
+            if events["severe_accidents"] > 0:
+                print(f"  → Severe accidents:              {events['severe_accidents']}")
+            print(f"Chronic conditions:                {events['chronic_conditions']}")
+            print(f"Breakdowns (car/house):            {events['breakdowns']}")
+            print(f"Firings:                           {events['firings']}")
+            print(f"Windfalls (lucky finds):           {events['windfalls']}")
+            print(f"Mass layoffs:                      {events['mass_layoffs']}")
+            if events["mass_layoffs"] > 0:
+                print(f"  → {events['people_affected_by_layoffs']} people affected")
+        else:
+            print("(No major events occurred during this simulation)")
+        
+        print("\n" + "-" * 80)
+        print("INDIVIDUAL ACHIEVEMENTS")
+        print("-" * 80)
+        achievements = detailed["individual_achievements"]
+        if achievements["top_earner"]:
+            print(f"Top earner (Applicant {achievements['top_earner']['applicant_id']}):        ${achievements['top_earner']['salary']:>10.2f}/year")
+        print(f"Richest person (Applicant {achievements['richest_person']['applicant_id']}):   ${achievements['richest_person']['final_wealth']:>10.2f}")
+        if achievements["biggest_tier_jump"]["tier_improvement"] > 0:
+            print(f"Biggest tier jump (Applicant {achievements['biggest_tier_jump']['applicant_id']}):  +{achievements['biggest_tier_jump']['tier_improvement']} tiers")
+        else:
+            print(f"Biggest tier change (Applicant {achievements['biggest_tier_jump']['applicant_id']}): {achievements['biggest_tier_jump']['tier_improvement']:+d} tiers")
+        
+        print("\n" + "-" * 80)
+        print("ECONOMICS SUMMARY")
+        print("-" * 80)
+        econ = detailed["economics"]
+        print(f"Total applications:               {econ['total_applications']:>8}")
+        print(f"Total jobs filled:                {econ['total_jobs_filled']:>8}")
+        print(f"Boost spend (applicants):         ${econ['total_boost_spend']:>10.2f}")
+        print(f"Company boost revenue:            ${econ['total_company_revenue']:>10.2f}")
+        print(f"Platform net revenue:             ${econ['total_platform_revenue']:>10.2f}")
+    except Exception:
+        pass  # If detailed summary fails, just show the basic one
+    
+    print("\n" + "=" * 80)
 
 
 if __name__ == "__main__":

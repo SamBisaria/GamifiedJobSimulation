@@ -16,10 +16,18 @@ class SimulationConfig:
 
     # Economy
     starting_wealth_min: float = 250.0
-    starting_wealth_max: float = 12000.0
+    starting_wealth_max: float = 20000.0
     premium_per_dollar: float = 8.0
     company_revenue_share: float = 0.65
     base_boost_cost: float = 10.0
+
+    # Daily living expenses (realistic model)
+    # Base costs (food, utilities, etc.) per day
+    base_daily_living_cost: float = 35.0  # Base food + utilities minimum
+    # Housing cost per day (varies by lifestyle/wealth)
+    base_daily_housing_cost: float = 40.0  # Minimum housing; scales with wealth/tier
+    # Unemployed efficiency factor (spend less on discretionary items)
+    unemployed_expense_factor: float = 0.75
 
     # Hiring model
     base_screen_rate: float = 0.05
@@ -35,11 +43,21 @@ class SimulationConfig:
     fired_daily_prob: float = 0.0007
     windfall_daily_prob: float = 0.0005
     mass_layoff_daily_prob: float = 0.002
+    chronic_condition_initial_prob: float = 0.04
+    chronic_condition_daily_prob: float = 0.0001
+    chronic_condition_daily_cost_min: float = 12.0
+    chronic_condition_daily_cost_max: float = 65.0
+    chronic_condition_free_time_penalty_min: float = 0.06
+    chronic_condition_free_time_penalty_max: float = 0.18
+    breakdown_daily_prob: float = 0.0009
+    breakdown_cost_min: float = 300.0
+    breakdown_cost_max: float = 3500.0
+    accident_severe_prob: float = 0.12
+    accident_severe_cost_min: float = 2500.0
+    accident_severe_cost_max: float = 12000.0
 
     # Visualization
     dashboard_print_every_n_days: int = 1
 
-
-@dataclass(slots=True)
-class RunPaths:
-    output_dir: str = "output"
+    # Fair mode: disable premium currency and boosts
+    fair_mode: bool = False

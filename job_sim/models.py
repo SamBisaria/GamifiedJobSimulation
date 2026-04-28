@@ -82,6 +82,7 @@ class Applicant:
     current_company_tier: int = 0
     current_salary: float = 0.0
     current_role_skills: list[str] = field(default_factory=list)
+    applied_job_ids: set[int] = field(default_factory=set)
 
     # Resource state
     premium_currency: float = 0.0
@@ -90,6 +91,9 @@ class Applicant:
     recent_rejections: int = 0
     unavailable_days: int = 0
     preparation_bonus: float = 1.0
+    chronic_condition: bool = False
+    chronic_daily_cost: float = 0.0
+    chronic_free_time_penalty: float = 0.0
 
     # Accumulated stats
     hired_count: int = 0
