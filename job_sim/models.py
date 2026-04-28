@@ -82,6 +82,7 @@ class Applicant:
     current_company_tier: int = 0
     current_salary: float = 0.0
     current_role_skills: list[str] = field(default_factory=list)
+    applied_job_ids: set[int] = field(default_factory=set)
 
     # Resource state
     premium_currency: float = 0.0

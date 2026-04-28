@@ -38,8 +38,3 @@ class SimulationConfig:
 
     # Visualization
     dashboard_print_every_n_days: int = 1
-
-
-@dataclass(slots=True)
-class RunPaths:
-    output_dir: str = "output"

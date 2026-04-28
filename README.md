@@ -18,10 +18,10 @@ python main.py --users 100 --days 100 --seed 42 --mode batch
 
 ## Modes
 
-- `batch`: write outputs only
+- `batch`: no per-day output; outputs only with `--write-outputs`
 - `dashboard`: print day-by-day summary in terminal
 - `trace`: print one applicant journey day-by-day
-- `all`: dashboard + trace + output files
+- `all`: dashboard + trace (outputs only with `--write-outputs`)
 
 Trace detail levels:
 - `concise` (default): only changed stats and skills each day, but always includes employment status and current company/job line.
@@ -41,7 +41,7 @@ python main.py --users 100 --days 30 --mode trace --trace-id 7 --trace-detail fu
 
 ## Outputs
 
-The run writes files to `output/`:
+The run writes files to `output/` when `--write-outputs` is set:
 - `daily_metrics_*.csv`
 - `summary_*.json`
 - `metrics_plot_*.png` (only if matplotlib is installed)
