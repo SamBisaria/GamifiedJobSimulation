@@ -102,6 +102,9 @@ class JobMarketSimulation:
         self.market = MarketState()
         self.fair_mode = config.fair_mode
 
+        self.applicant_snapshots: list[dict[str, int | float | str]] = []
+        self.interaction_events: list[dict[str, int | str]] = []
+
         self.next_job_id = 1
         self._trace_enabled = False
         self._trace_applicant_id = 0
@@ -204,6 +207,8 @@ class JobMarketSimulation:
         if self._trace_enabled and 0 <= self._trace_applicant_id < len(self.applicants):
             self._log_daily_snapshot(self.applicants[self._trace_applicant_id], day)
 
+        self._collect_applicant_snapshots(day)
+
         return self._collect_metrics(day)
 
     def _company_name(self, company_id: int) -> str:
@@ -282,6 +287,12 @@ class JobMarketSimulation:
                 strategy=strategy,
                 skills=skills,
             )
+
+            if self.config.mixed_mode:
+                applicant.uses_platform = self.rng.random() < self.config.platform_adoption_rate
+            elif self.config.fair_mode:
+                applicant.uses_platform = False
+            # else: default True
 
             if self.rng.random() < self.config.chronic_condition_initial_prob:
                 self._activate_chronic_condition(applicant, 0, "initial")
@@ -624,6 +635,11 @@ class JobMarketSimulation:
         applicant.applied_job_ids.add(job.id)
         company_name = self._company_name(job.company_id)
         self.companies[job.company_id - 1].applications_received += 1
+        self.interaction_events.append({
+            "day": day, "applicant_id": applicant.id,
+            "company_id": job.company_id, "company_name": company_name,
+            "company_tier": job.tier, "event": "applied",
+        })
         self._log_trace(
             applicant,
             day,
@@ -635,7 +651,7 @@ class JobMarketSimulation:
         return True
 
     def _should_boost(self, applicant: Applicant, job: JobPosting, strategy: Strategy) -> bool:
-        if self.fair_mode:
+        if self.fair_mode or not applicant.uses_platform:
             return False
         
         # Calculate expected daily expense (baseline, no randomness)
@@ -834,6 +850,12 @@ class JobMarketSimulation:
                 winner_submission.status = "hired"
                 self._hires_today += 1
                 self.companies[job.company_id - 1].jobs_filled += 1
+                self.interaction_events.append({
+                    "day": day, "applicant_id": winner_id,
+                    "company_id": job.company_id,
+                    "company_name": self._company_name(job.company_id),
+                    "company_tier": job.tier, "event": "hired",
+                })
                 self._log_trace(
                     winner,
                     day,
@@ -898,6 +920,7 @@ class JobMarketSimulation:
             share = self.rng.uniform(0.10, 0.35)
             for applicant in self.applicants:
                 if applicant.current_company_id == target_company.id and self.rng.random() < share:
+                    laid_off_cid = applicant.current_company_id
                     applicant.status = EmploymentStatus.UNEMPLOYED
                     applicant.current_company_id = None
                     applicant.current_company_tier = 0
@@ -905,6 +928,12 @@ class JobMarketSimulation:
                     applicant.current_role_skills = []
                     laid_off += 1
                     self._log_trace(applicant, day, f"mass layoff from company {target_company.id}")
+                    self.interaction_events.append({
+                        "day": day, "applicant_id": applicant.id,
+                        "company_id": laid_off_cid,
+                        "company_name": self._company_name(laid_off_cid),
+                        "company_tier": target_company.tier, "event": "laid_off",
+                    })
             if laid_off > 0:
                 self._total_mass_layoffs += 1
                 self._total_affected_by_mass_layoff += laid_off
@@ -944,6 +973,8 @@ class JobMarketSimulation:
                 self._log_trace(applicant, day, f"breakdown event, cost ${cost:.2f}")
 
             if applicant.status == EmploymentStatus.EMPLOYED and self.rng.random() < self.config.fired_daily_prob:
+                fired_cid = applicant.current_company_id
+                fired_tier = applicant.current_company_tier
                 self._total_firings += 1
                 applicant.status = EmploymentStatus.UNEMPLOYED
                 applicant.current_company_id = None
@@ -951,6 +982,12 @@ class JobMarketSimulation:
                 applicant.current_salary = 0.0
                 applicant.current_role_skills = []
                 self._log_trace(applicant, day, "fired from job")
+                self.interaction_events.append({
+                    "day": day, "applicant_id": applicant.id,
+                    "company_id": fired_cid or -1,
+                    "company_name": self._company_name(fired_cid) if fired_cid else "",
+                    "company_tier": fired_tier, "event": "fired",
+                })
 
             if self.rng.random() < self.config.windfall_daily_prob:
                 self._total_windfalls += 1
@@ -1011,6 +1048,28 @@ class JobMarketSimulation:
             "platform_boost_revenue_cumulative": round(platform_revenue_cumulative, 2),
         }
         return metrics
+
+    def _collect_applicant_snapshots(self, day: int) -> None:
+        for a in self.applicants:
+            self.applicant_snapshots.append(
+                {
+                    "day": day,
+                    "applicant_id": a.id,
+                    "status": a.status.value,
+                    "company_id": a.current_company_id if a.current_company_id is not None else -1,
+                    "company_name": self._company_name(a.current_company_id) if a.current_company_id else "",
+                    "company_tier": a.current_company_tier,
+                    "salary": round(a.current_salary, 2),
+                    "strategy": a.strategy.value,
+                    "wealth": round(a.wealth, 2),
+                    "experience": round(a.experience, 4),
+                    "recent_rejections": a.recent_rejections,
+                    "hired_count": a.hired_count,
+                    "total_applications": a.total_applications,
+                    "total_spent_on_boosts": round(a.total_spent_on_boosts, 2),
+                    "uses_platform": int(a.uses_platform),
+                }
+            )
 
     def final_summary(self) -> dict[str, float | int]:
         employed = [a for a in self.applicants if a.status == EmploymentStatus.EMPLOYED]

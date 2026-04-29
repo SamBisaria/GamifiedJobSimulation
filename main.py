@@ -10,7 +10,9 @@ from job_sim.visualization import (
     write_company_breakdown_csv,
     write_company_breakdown_json,
     write_daily_metrics_csv,
+    write_interaction_events_csv,
     write_summary_json,
+    write_applicant_snapshots_csv,
 )
 
 
@@ -60,6 +62,17 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Start all applicants unemployed",
     )
+    parser.add_argument(
+        "--mixed-mode",
+        action="store_true",
+        help="Half the population uses the platform, half does not",
+    )
+    parser.add_argument(
+        "--platform-adoption-rate",
+        type=float,
+        default=0.5,
+        help="Proportion of the population that uses the platform in mixed mode",
+    )
     return parser.parse_args()
 
 
@@ -71,6 +84,8 @@ def main() -> None:
         seed=args.seed,
         fair_mode=args.fair_mode,
         start_unemployed=args.start_unemployed,
+        mixed_mode=args.mixed_mode,
+        platform_adoption_rate=args.platform_adoption_rate,
     )
     sim = JobMarketSimulation(config)
 
@@ -85,6 +100,10 @@ def main() -> None:
         company_csv_path = write_company_breakdown_csv(args.output_dir, company_breakdown)
         company_json_path = write_company_breakdown_json(args.output_dir, company_breakdown)
         plot_path = try_write_basic_plots(args.output_dir, daily)
+        snapshots_path = write_applicant_snapshots_csv(args.output_dir, sim.applicant_snapshots)
+        print(f"- Applicant snapshots: {snapshots_path}")
+        events_path = write_interaction_events_csv(args.output_dir, sim.interaction_events)
+        print(f"- Interaction events: {events_path}")
 
     print("\n" + "=" * 80)
     print("RUN COMPLETE")
