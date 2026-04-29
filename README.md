@@ -78,3 +78,4 @@ Edit defaults in `job_sim/config.py` or pass CLI args for:
 - `--days`: number of simulation days (default: 100)
 - `--seed`: random seed for reproducibility (default: 42)
 - `--fair-mode`: disable premium currency and boosts (default: off)
+- `--start-unemployed`: start all applicants unemployed (default: off)
