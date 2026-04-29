@@ -57,6 +57,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Disable premium currency purchases and boosts (fair competition mode)",
     )
+    parser.add_argument(
+        "--start-unemployed",
+        action="store_true",
+        help="Start all applicants unemployed",
+    )
     return parser.parse_args()
 
 
@@ -67,6 +72,7 @@ def main() -> None:
         num_days=args.days,
         seed=args.seed,
         fair_mode=args.fair_mode,
+        start_unemployed=args.start_unemployed,
     )
     sim = JobMarketSimulation(config)
 

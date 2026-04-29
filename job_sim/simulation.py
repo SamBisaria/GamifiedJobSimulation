@@ -251,7 +251,10 @@ class JobMarketSimulation:
             free_time = clamp(self.rng.gauss(0.6, 0.2), 0.1, 1.0)
             wealth = self.rng.uniform(self.config.starting_wealth_min, self.config.starting_wealth_max)
 
-            status = EmploymentStatus.EMPLOYED if self.rng.random() < 0.62 else EmploymentStatus.UNEMPLOYED
+            if self.config.start_unemployed:
+                status = EmploymentStatus.UNEMPLOYED
+            else:
+                status = EmploymentStatus.EMPLOYED if self.rng.random() < 0.62 else EmploymentStatus.UNEMPLOYED
             strategy_roll = self.rng.random()
             if strategy_roll < 0.25:
                 strategy = Strategy.REACH

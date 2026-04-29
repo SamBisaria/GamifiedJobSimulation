@@ -39,17 +39,17 @@ class SimulationConfig:
     quest_reward_currency: float = 8.0
 
     # Rare events
-    accident_daily_prob: float = 0.0008
-    fired_daily_prob: float = 0.0007
+    accident_daily_prob: float = 0.00005
+    fired_daily_prob: float = 0.001
     windfall_daily_prob: float = 0.0005
-    mass_layoff_daily_prob: float = 0.002
+    mass_layoff_daily_prob: float = 0.02
     chronic_condition_initial_prob: float = 0.04
     chronic_condition_daily_prob: float = 0.0001
     chronic_condition_daily_cost_min: float = 12.0
     chronic_condition_daily_cost_max: float = 65.0
     chronic_condition_free_time_penalty_min: float = 0.06
     chronic_condition_free_time_penalty_max: float = 0.18
-    breakdown_daily_prob: float = 0.0009
+    breakdown_daily_prob: float = 0.001
     breakdown_cost_min: float = 300.0
     breakdown_cost_max: float = 3500.0
     accident_severe_prob: float = 0.12
@@ -61,3 +61,6 @@ class SimulationConfig:
 
     # Fair mode: disable premium currency and boosts
     fair_mode: bool = False
+
+    # Start all applicants unemployed
+    start_unemployed: bool = False
