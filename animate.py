@@ -854,16 +854,412 @@ def make_revenue_animation(daily_metrics_path: str, output_dir: str) -> str:
     print(f"Revenue animation → {target}")
     return target
 
+def _load_snap(path: str) -> pd.DataFrame:
+    df = pd.read_csv(path)
+    if "total_spent_on_boosts" not in df.columns:
+        df["total_spent_on_boosts"] = 0.0
+    return df
+
+
+def make_applications_vs_salary_animation(
+    gamified_snap: str, fair_snap: str | None, output_dir: str
+) -> str:
+    tier_pal = {0: "#e84040", 1: "#90caf9", 2: "#42a5f5", 3: "#66bb6a", 4: "#ffa726", 5: "#ab47bc"}
+
+    dg = _load_snap(gamified_snap)
+    df_fair = _load_snap(fair_snap) if fair_snap else None
+
+    days = sorted(dg["day"].unique())
+    aids = sorted(dg["applicant_id"].unique())
+
+    def tier_val(row: pd.Series) -> int:
+        return 0 if str(row["status"]) == "unemployed" else int(row["company_tier"])
+
+    def build_traces(day: int) -> list:
+        g = dg[dg["day"] == day].set_index("applicant_id")
+        traces = []
+
+        # Gamified: one trace per tier so legend is meaningful
+        for t in range(6):
+            xs, ys, hovers = [], [], []
+            for aid in aids:
+                if aid not in g.index:
+                    continue
+                row = g.loc[aid]
+                if tier_val(row) != t:
+                    continue
+                xs.append(float(row["total_applications"]))
+                ys.append(float(row["salary"]) if str(row["status"]) == "employed" else 0.0)
+                hovers.append(
+                    f"#{aid} [Gamified]<br>"
+                    f"Apps: {int(row['total_applications'])}<br>"
+                    f"Salary: ${float(row['salary']):,.0f}<br>"
+                    f"Spent: ${float(row['total_spent_on_boosts']):,.0f}"
+                )
+            traces.append(go.Scatter(
+                x=xs, y=ys, mode="markers",
+                marker=dict(color=tier_pal[t], size=8, symbol="circle", opacity=0.75),
+                text=hovers, hoverinfo="text",
+                name=f"Gamified T{t}" if t > 0 else "Gamified Unemp",
+                legendgroup=f"g{t}",
+            ))
+
+        # Fair mode overlay
+        if df_fair is not None:
+            f = df_fair[df_fair["day"] == day].set_index("applicant_id")
+            fx, fy, fh = [], [], []
+            for aid in aids:
+                if aid not in f.index:
+                    continue
+                row = f.loc[aid]
+                fx.append(float(row["total_applications"]))
+                fy.append(float(row["salary"]) if str(row["status"]) == "employed" else 0.0)
+                fh.append(
+                    f"#{aid} [Fair]<br>"
+                    f"Apps: {int(row['total_applications'])}<br>"
+                    f"Salary: ${float(row['salary']):,.0f}"
+                )
+            traces.append(go.Scatter(
+                x=fx, y=fy, mode="markers",
+                marker=dict(color="rgba(255,255,255,0.55)", size=7, symbol="x"),
+                text=fh, hoverinfo="text", name="Fair Mode",
+            ))
+        return traces
+
+    n_traces = 7 if df_fair is not None else 6
+    frames = [
+        go.Frame(
+            data=build_traces(day),
+            traces=list(range(n_traces)),
+            name=str(day),
+            layout=go.Layout(title_text=f"Day {day} — Applications vs Salary"),
+        )
+        for day in days
+    ]
+
+    salary_max = float(dg["salary"].max()) * 1.1
+    apps_max = float(dg["total_applications"].max()) * 1.05
+
+    fig = go.Figure(
+        data=build_traces(days[0]),
+        frames=frames,
+        layout=go.Layout(
+            title="Applications Submitted vs Resulting Salary",
+            height=620,
+            plot_bgcolor="#12122a",
+            paper_bgcolor="#0d0d1f",
+            font=dict(color="white"),
+            xaxis=dict(title="Total Applications Submitted", range=[0, apps_max],
+                       gridcolor="rgba(255,255,255,0.06)"),
+            yaxis=dict(title="Current Salary ($)", range=[0, salary_max],
+                       gridcolor="rgba(255,255,255,0.06)"),
+            legend=dict(x=1.01, y=1.0, bgcolor="rgba(0,0,0,0)"),
+            annotations=[dict(
+                x=0.5, y=1.06, xref="paper", yref="paper", showarrow=False,
+                text="● Gamified (color=tier)   ✕ Fair mode (white) — salary=0 means unemployed",
+                font=dict(size=10, color="rgba(255,255,255,0.6)"),
+            )],
+            updatemenus=[{
+                "type": "buttons", "y": -0.1, "x": 0.5, "xanchor": "center",
+                "bgcolor": "#2a2a44",
+                "buttons": [
+                    {"label": "▶ Play", "method": "animate",
+                     "args": [None, {"frame": {"duration": 150, "redraw": True},
+                                     "transition": {"duration": 80, "easing": "cubic-in-out"},
+                                     "fromcurrent": True}]},
+                    {"label": "⏸ Pause", "method": "animate",
+                     "args": [[None], {"frame": {"duration": 0}, "mode": "immediate"}]},
+                ],
+            }],
+            sliders=[{
+                "steps": [{"method": "animate",
+                           "args": [[str(d)], {"mode": "immediate",
+                                               "transition": {"duration": 60},
+                                               "frame": {"duration": 150, "redraw": True}}],
+                           "label": str(d)} for d in days],
+                "x": 0.05, "len": 0.9, "bgcolor": "#2a2a44",
+                "currentvalue": {"prefix": "Day: ", "visible": True, "font": {"color": "white"}},
+                "pad": {"t": 50},
+            }],
+        ),
+    )
+    target = os.path.join(output_dir, "animation_apps_vs_salary.html")
+    fig.write_html(target)
+    print(f"Applications vs salary → {target}")
+    return target
+
+
+def make_spend_vs_salary_animation(
+    gamified_snap: str, fair_snap: str | None, output_dir: str
+) -> str:
+    tier_pal = {0: "#e84040", 1: "#90caf9", 2: "#42a5f5", 3: "#66bb6a", 4: "#ffa726", 5: "#ab47bc"}
+    tier_labels = {0: "Unemployed", 1: "Tier 1", 2: "Tier 2", 3: "Tier 3", 4: "Tier 4", 5: "Tier 5"}
+
+    dg = _load_snap(gamified_snap)
+    df_fair = _load_snap(fair_snap) if fair_snap else None
+
+    days = sorted(dg["day"].unique())
+    aids = sorted(dg["applicant_id"].unique())
+    salary_max = float(dg["salary"].max()) * 1.1
+    spend_max = float(dg["total_spent_on_boosts"].max()) * 1.1 if float(dg["total_spent_on_boosts"].max()) > 0 else 100.0
+
+    def build_traces(day: int) -> list:
+        g = dg[dg["day"] == day].set_index("applicant_id")
+        traces = []
+
+        for t in range(6):
+            xs, ys, hovers = [], [], []
+            for aid in aids:
+                if aid not in g.index:
+                    continue
+                row = g.loc[aid]
+                tv = 0 if str(row["status"]) == "unemployed" else int(row["company_tier"])
+                if tv != t:
+                    continue
+                xs.append(float(row["total_spent_on_boosts"]))
+                ys.append(float(row["salary"]) if str(row["status"]) == "employed" else 0.0)
+                hovers.append(
+                    f"#{aid}<br>{tier_labels[t]}<br>"
+                    f"Spent: ${float(row['total_spent_on_boosts']):,.0f}<br>"
+                    f"Salary: ${float(row['salary']):,.0f}<br>"
+                    f"Apps: {int(row['total_applications'])}"
+                )
+            traces.append(go.Scatter(
+                x=xs, y=ys, mode="markers",
+                marker=dict(color=tier_pal[t], size=8, opacity=0.8),
+                text=hovers, hoverinfo="text",
+                name=tier_labels[t],
+            ))
+
+        # Fair mode: all spend = 0, cluster on y-axis to show baseline salary distribution
+        if df_fair is not None:
+            f = df_fair[df_fair["day"] == day].set_index("applicant_id")
+            fx, fy, fh = [], [], []
+            for aid in aids:
+                if aid not in f.index:
+                    continue
+                row = f.loc[aid]
+                # Jitter slightly around x=0 for readability
+                fx.append(float(row["total_spent_on_boosts"]) + np.random.default_rng(int(aid)).uniform(-spend_max * 0.008, spend_max * 0.008))
+                fy.append(float(row["salary"]) if str(row["status"]) == "employed" else 0.0)
+                fh.append(
+                    f"#{aid} [Fair baseline]<br>"
+                    f"Salary: ${float(row['salary']):,.0f}"
+                )
+            traces.append(go.Scatter(
+                x=fx, y=fy, mode="markers",
+                marker=dict(color="rgba(255,255,255,0.4)", size=6, symbol="diamond"),
+                text=fh, hoverinfo="text", name="Fair baseline",
+            ))
+        return traces
+
+    n_traces = 7 if df_fair is not None else 6
+    frames = [
+        go.Frame(
+            data=build_traces(day),
+            traces=list(range(n_traces)),
+            name=str(day),
+            layout=go.Layout(title_text=f"Day {day} — Boost Spend vs Salary"),
+        )
+        for day in days
+    ]
+
+    fig = go.Figure(
+        data=build_traces(days[0]),
+        frames=frames,
+        layout=go.Layout(
+            title="Money Spent on Boosts vs Resulting Salary — Is it Pay to Win?",
+            height=620,
+            plot_bgcolor="#12122a",
+            paper_bgcolor="#0d0d1f",
+            font=dict(color="white"),
+            xaxis=dict(title="Total Boost Spend ($)", range=[-spend_max * 0.02, spend_max],
+                       gridcolor="rgba(255,255,255,0.06)"),
+            yaxis=dict(title="Current Salary ($)", range=[0, salary_max],
+                       gridcolor="rgba(255,255,255,0.06)"),
+            legend=dict(x=1.01, y=1.0, bgcolor="rgba(0,0,0,0)"),
+            annotations=[dict(
+                x=0.5, y=1.06, xref="paper", yref="paper", showarrow=False,
+                text="Color = current tier | ◆ Fair baseline (no spend) clustered at x≈0",
+                font=dict(size=10, color="rgba(255,255,255,0.6)"),
+            )],
+            updatemenus=[{
+                "type": "buttons", "y": -0.1, "x": 0.5, "xanchor": "center",
+                "bgcolor": "#2a2a44",
+                "buttons": [
+                    {"label": "▶ Play", "method": "animate",
+                     "args": [None, {"frame": {"duration": 150, "redraw": True},
+                                     "transition": {"duration": 80, "easing": "cubic-in-out"},
+                                     "fromcurrent": True}]},
+                    {"label": "⏸ Pause", "method": "animate",
+                     "args": [[None], {"frame": {"duration": 0}, "mode": "immediate"}]},
+                ],
+            }],
+            sliders=[{
+                "steps": [{"method": "animate",
+                           "args": [[str(d)], {"mode": "immediate",
+                                               "transition": {"duration": 60},
+                                               "frame": {"duration": 150, "redraw": True}}],
+                           "label": str(d)} for d in days],
+                "x": 0.05, "len": 0.9, "bgcolor": "#2a2a44",
+                "currentvalue": {"prefix": "Day: ", "visible": True, "font": {"color": "white"}},
+                "pad": {"t": 50},
+            }],
+        ),
+    )
+    target = os.path.join(output_dir, "animation_spend_vs_salary.html")
+    fig.write_html(target)
+    print(f"Spend vs salary → {target}")
+    return target
+
+
+def make_skills_spend_vs_salary_animation(
+    gamified_snap: str, fair_snap: str | None, output_dir: str
+) -> str:
+    """Bubble chart: x=experience (inherent skill), y=salary, size=boost spend.
+    Shows whether money overrides skill, or skill alone determines outcomes in fair mode."""
+    dg = _load_snap(gamified_snap)
+    df_fair = _load_snap(fair_snap) if fair_snap else None
+
+    days = sorted(dg["day"].unique())
+    aids = sorted(dg["applicant_id"].unique())
+
+    salary_max = float(dg["salary"].max()) * 1.1
+    spend_max = float(dg["total_spent_on_boosts"].max())
+    # Bubble size: log scale so even small spenders are visible
+    def spend_to_size(s: float) -> float:
+        return 6.0 + 22.0 * (np.log1p(s) / np.log1p(spend_max)) if spend_max > 0 else 8.0
+
+    def build_traces(day: int) -> list:
+        g = dg[dg["day"] == day].set_index("applicant_id")
+        gx, gy, gsizes, gcolors, ghovers = [], [], [], [], []
+        for aid in aids:
+            if aid not in g.index:
+                continue
+            row = g.loc[aid]
+            spend = float(row["total_spent_on_boosts"])
+            salary = float(row["salary"]) if str(row["status"]) == "employed" else 0.0
+            gx.append(float(row["experience"]))
+            gy.append(salary)
+            gsizes.append(spend_to_size(spend))
+            gcolors.append(spend)
+            ghovers.append(
+                f"#{aid} [Gamified]<br>"
+                f"Experience: {float(row['experience']):.3f}<br>"
+                f"Salary: ${salary:,.0f}<br>"
+                f"Boost spend: ${spend:,.0f}"
+            )
+
+        traces = [go.Scatter(
+            x=gx, y=gy, mode="markers",
+            marker=dict(
+                color=gcolors, colorscale="Plasma",
+                cmin=0, cmax=spend_max,
+                size=gsizes, opacity=0.8,
+                colorbar=dict(title="Boost $", thickness=12, x=1.02, len=0.5),
+                line=dict(color="rgba(255,255,255,0.2)", width=0.5),
+            ),
+            text=ghovers, hoverinfo="text", name="Gamified",
+        )]
+
+        if df_fair is not None:
+            f = df_fair[df_fair["day"] == day].set_index("applicant_id")
+            fx, fy, fh = [], [], []
+            for aid in aids:
+                if aid not in f.index:
+                    continue
+                row = f.loc[aid]
+                salary = float(row["salary"]) if str(row["status"]) == "employed" else 0.0
+                fx.append(float(row["experience"]))
+                fy.append(salary)
+                fh.append(
+                    f"#{aid} [Fair]<br>"
+                    f"Experience: {float(row['experience']):.3f}<br>"
+                    f"Salary: ${salary:,.0f}"
+                )
+            traces.append(go.Scatter(
+                x=fx, y=fy, mode="markers",
+                marker=dict(color="rgba(100,220,255,0.45)", size=7, symbol="diamond",
+                            line=dict(color="rgba(100,220,255,0.8)", width=1)),
+                text=fh, hoverinfo="text", name="Fair (no spend)",
+            ))
+        return traces
+
+    n_traces = 2 if df_fair is not None else 1
+    frames = [
+        go.Frame(
+            data=build_traces(day),
+            traces=list(range(n_traces)),
+            name=str(day),
+            layout=go.Layout(title_text=f"Day {day} — Skill + Spend → Salary"),
+        )
+        for day in days
+    ]
+
+    fig = go.Figure(
+        data=build_traces(days[0]),
+        frames=frames,
+        layout=go.Layout(
+            title="Inherent Skill + Money Spent → Resulting Salary",
+            height=620,
+            plot_bgcolor="#12122a",
+            paper_bgcolor="#0d0d1f",
+            font=dict(color="white"),
+            xaxis=dict(title="Experience (inherent skill proxy, 0–1)",
+                       range=[-0.02, 1.02], gridcolor="rgba(255,255,255,0.06)"),
+            yaxis=dict(title="Current Salary ($)", range=[0, salary_max],
+                       gridcolor="rgba(255,255,255,0.06)"),
+            legend=dict(x=1.08, y=0.5, bgcolor="rgba(0,0,0,0)"),
+            annotations=[dict(
+                x=0.5, y=1.06, xref="paper", yref="paper", showarrow=False,
+                text="● Gamified: size & color = boost spend (Plasma scale) | ◆ Fair: no spend",
+                font=dict(size=10, color="rgba(255,255,255,0.6)"),
+            )],
+            updatemenus=[{
+                "type": "buttons", "y": -0.1, "x": 0.5, "xanchor": "center",
+                "bgcolor": "#2a2a44",
+                "buttons": [
+                    {"label": "▶ Play", "method": "animate",
+                     "args": [None, {"frame": {"duration": 150, "redraw": True},
+                                     "transition": {"duration": 80, "easing": "cubic-in-out"},
+                                     "fromcurrent": True}]},
+                    {"label": "⏸ Pause", "method": "animate",
+                     "args": [[None], {"frame": {"duration": 0}, "mode": "immediate"}]},
+                ],
+            }],
+            sliders=[{
+                "steps": [{"method": "animate",
+                           "args": [[str(d)], {"mode": "immediate",
+                                               "transition": {"duration": 60},
+                                               "frame": {"duration": 150, "redraw": True}}],
+                           "label": str(d)} for d in days],
+                "x": 0.05, "len": 0.9, "bgcolor": "#2a2a44",
+                "currentvalue": {"prefix": "Day: ", "visible": True, "font": {"color": "white"}},
+                "pad": {"t": 50},
+            }],
+        ),
+    )
+    target = os.path.join(output_dir, "animation_skills_spend_vs_salary.html")
+    fig.write_html(target)
+    print(f"Skills + spend vs salary → {target}")
+    return target
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate animations from simulation output")
     parser.add_argument("--output-dir", default="output")
     parser.add_argument("--applicant-id", type=int, default=0, help="Applicant ID for individual journey animation")
+    parser.add_argument(
+        "--fair-dir", 
+        default=None, 
+        help="Output dir from a --fair-mode run for comparison"
+    )
     args = parser.parse_args()
 
     snapshots = latest_file(args.output_dir, "applicant_snapshots_*.csv")
     daily = latest_file(args.output_dir, "daily_metrics_*.csv")
     events = latest_file(args.output_dir, "interaction_events_*.csv")
+    fair_snap = latest_file(args.fair_dir, "applicant_snapshots_*.csv") if args.fair_dir else None
     
     make_population_animation(snapshots, daily, args.output_dir)
     make_population_animation_with_dots(snapshots, daily, args.output_dir)
@@ -871,3 +1267,6 @@ if __name__ == "__main__":
     make_individual_animation(snapshots, args.output_dir, args.applicant_id)
     make_interaction_animation(snapshots, events, daily, args.output_dir)
     make_revenue_animation(daily, args.output_dir)
+    make_applications_vs_salary_animation(snapshots, fair_snap, args.output_dir)
+    make_spend_vs_salary_animation(snapshots, fair_snap, args.output_dir)
+    make_skills_spend_vs_salary_animation(snapshots, fair_snap, args.output_dir)

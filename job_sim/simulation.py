@@ -1060,6 +1060,7 @@ class JobMarketSimulation:
                     "recent_rejections": a.recent_rejections,
                     "hired_count": a.hired_count,
                     "total_applications": a.total_applications,
+                    "total_spent_on_boosts": round(a.total_spent_on_boosts, 2),
                 }
             )
 

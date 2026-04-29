@@ -62,6 +62,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Start all applicants unemployed",
     )
+    parser.add_argument(
+        "--fair-dir", 
+        default=None, 
+        help="Output dir from a --fair-mode run for comparison"
+    )
     return parser.parse_args()
 
 
