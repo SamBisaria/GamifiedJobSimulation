@@ -63,9 +63,15 @@ def parse_args() -> argparse.Namespace:
         help="Start all applicants unemployed",
     )
     parser.add_argument(
-        "--fair-dir", 
-        default=None, 
-        help="Output dir from a --fair-mode run for comparison"
+        "--mixed-mode",
+        action="store_true",
+        help="Half the population uses the platform, half does not",
+    )
+    parser.add_argument(
+        "--platform-adoption-rate",
+        type=float,
+        default=0.5,
+        help="Proportion of the population that uses the platform in mixed mode",
     )
     return parser.parse_args()
 
@@ -78,6 +84,8 @@ def main() -> None:
         seed=args.seed,
         fair_mode=args.fair_mode,
         start_unemployed=args.start_unemployed,
+        mixed_mode=args.mixed_mode,
+        platform_adoption_rate=args.platform_adoption_rate,
     )
     sim = JobMarketSimulation(config)
 

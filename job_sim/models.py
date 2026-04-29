@@ -77,6 +77,9 @@ class Applicant:
     strategy: Strategy
     skills: dict[str, float]
 
+    # Mode-specific traits
+    uses_platform: bool = True
+
     # Job state
     current_company_id: int | None = None
     current_company_tier: int = 0

@@ -62,5 +62,9 @@ class SimulationConfig:
     # Fair mode: disable premium currency and boosts
     fair_mode: bool = False
 
+    # Mixed mode: part of the population uses fair mode, part uses gamification 
+    mixed_mode: bool = False
+    platform_adoption_rate: float = 0.5
+
     # Start all applicants unemployed
     start_unemployed: bool = False

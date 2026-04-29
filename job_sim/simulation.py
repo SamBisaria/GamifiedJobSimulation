@@ -288,6 +288,12 @@ class JobMarketSimulation:
                 skills=skills,
             )
 
+            if self.config.mixed_mode:
+                applicant.uses_platform = self.rng.random() < self.config.platform_adoption_rate
+            elif self.config.fair_mode:
+                applicant.uses_platform = False
+            # else: default True
+
             if self.rng.random() < self.config.chronic_condition_initial_prob:
                 self._activate_chronic_condition(applicant, 0, "initial")
 
@@ -645,7 +651,7 @@ class JobMarketSimulation:
         return True
 
     def _should_boost(self, applicant: Applicant, job: JobPosting, strategy: Strategy) -> bool:
-        if self.fair_mode:
+        if self.fair_mode or not applicant.uses_platform:
             return False
         
         # Calculate expected daily expense (baseline, no randomness)
@@ -1061,6 +1067,7 @@ class JobMarketSimulation:
                     "hired_count": a.hired_count,
                     "total_applications": a.total_applications,
                     "total_spent_on_boosts": round(a.total_spent_on_boosts, 2),
+                    "uses_platform": int(a.uses_platform),
                 }
             )
 
