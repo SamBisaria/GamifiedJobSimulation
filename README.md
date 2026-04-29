@@ -10,8 +10,6 @@ This project simulates a gamified job-search platform with:
 
 ## Quick start
 
-From `FinalProject`:
-
 ```bash
 python main.py --users 100 --days 100 --seed 42 --mode batch
 ```
